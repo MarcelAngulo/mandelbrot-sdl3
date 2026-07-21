@@ -1,2 +1,8 @@
+# C build artifacts
 bin/
 obj/
+
+# Python artifacts
+venv/
+__pychache__/
+*.pyc
