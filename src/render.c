@@ -2,7 +2,7 @@
 #include "render.h"
 #include "mandelbrot.h"
 
-void draw_mandelbrot(SDL_Texture *texture, const MandelbrotConfig *config) {
+void drawMandelbrot(SDL_Texture *texture, const MandelbrotConfig *config, const MandelbrotColors *colors) {
     void *pixels;
     int pitch;
     float width,height;
@@ -32,16 +32,20 @@ void draw_mandelbrot(SDL_Texture *texture, const MandelbrotConfig *config) {
             // Calculate how many iterations are needed to c to escape
             // If r==config->max_iterations, then c possibly belongs to
             // Mandelbrot Set, if not, doesn't belong
-            int r = calculate_escape(c, config);
+            int r = calculateEscape(c, config);
 
+            int pixel_index = y * (pitch / 4) + x;
+            if (r == config->maxIterations){
+                pixel_buffer[pixel_index] = colors->setColor;
+            } else {
+                pixel_buffer[pixel_index] = colors->noSetColors[r % colors->noSetSize];
+            }
+
+            /*
             Uint8 red, green, blue;
 
             // Determine pixel color based on the escape number.
-            if(r == config->max_iterations) {
-                red = 0; green = 0; blue = 0; // Inside set = Black
-            } else {
-                red = 255; green = 255; blue = 255;
-            }
+            calculatePixelColor(r, config->maxIterations, &red, &green, &blue);
 
             // Pack the channels into a single 32-bit integer
             // (RGBA8888 layout) pitch / 4 handles the exact
@@ -49,6 +53,7 @@ void draw_mandelbrot(SDL_Texture *texture, const MandelbrotConfig *config) {
             int pixel_index = y * (pitch / 4) + x;
             pixel_buffer[pixel_index] =
                 (red << 24) | (green << 16) | (blue << 8) | 0xFF;
+                */
         }
     }
 
@@ -56,9 +61,8 @@ void draw_mandelbrot(SDL_Texture *texture, const MandelbrotConfig *config) {
     SDL_UnlockTexture(texture);
 }
 
-// Creates a texrture with text
-SDL_Texture *render_text(SDL_Renderer *renderer, TTF_Font *font,
-        char *text, SDL_Color color, float *w, float *h) {
+// Creates a texture with text
+SDL_Texture *renderText(SDL_Renderer *renderer, TTF_Font *font, char *text, SDL_Color color, float *w, float *h) {
     SDL_Surface *text_surface = TTF_RenderText_Blended_Wrapped(
             font, text, 0, color, 0);
     SDL_Texture *text_texture = NULL;
@@ -72,3 +76,4 @@ SDL_Texture *render_text(SDL_Renderer *renderer, TTF_Font *font,
     }
     return text_texture;
 }
+

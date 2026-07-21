@@ -2,6 +2,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include "mandelbrot.h"
 #include "render.h"
 
@@ -9,70 +10,104 @@
 typedef struct {
     SDL_Window *window;
     SDL_Renderer *renderer;
-    SDL_Texture *fractal_texture;
-    SDL_FRect fractal_rect;
-    TTF_Font *ui_font;
-    int w_width;
-    int w_height;
+    SDL_Texture *fractalTexture;
+    SDL_FRect fractalRect;
+    TTF_Font *uiFont;
+    int width;
+    int height;
     MandelbrotConfig config;
+    MandelbrotColors colors;
     bool running;
-    bool update_fractal;
+    bool updateFractal;
     bool show_info;
 } AppState;
 
 // 2. Helper Function Declarations
-bool init_app(AppState *app, int width, int height);
-void handle_events(AppState *app);
-void render_all(AppState *app);
-void parse_arguments(int argc, char *argv[], MandelbrotConfig *config);
-void save_screenshot(SDL_Renderer *renderer);
-void cleanup_app(AppState *app);
+bool initApp(AppState *app);
+void handleEvents(AppState *app);
+void renderAll(AppState *app);
+void restartFractalRect(AppState *app);
+void parseArguments(AppState *app, int argc, char *argv[]);
+void saveScreenshot(SDL_Renderer *renderer);
+void cleanupApp(AppState *app);
 
 // 3. The main function
 int main(int argc, char *argv[]) {
     AppState app = {0};
-
-    // Set default config values first
-    app.config = (MandelbrotConfig){
-        .center = -0.75,
-        .range = 3.0-3.0*I,
-        .max_iterations = 40
-    };
+    // Initialize systems
+    if(!initApp(&app))
+        return 1; //Exit on erro
 
     // Ovveride defaults if the user passed command-line args
-    parse_arguments(argc, argv, &app.config);
-
-    // Initialize systems
-    if(!init_app(&app, 800, 800)) {
-        return 1;
-    }
-
+    parseArguments(&app, argc, argv);
 
     // The main loop
     while(app.running){
-        handle_events(&app);
-        render_all(&app);
+        handleEvents(&app);
+        renderAll(&app);
         SDL_Delay(32);
     }
 
-    cleanup_app(&app);
+    cleanupApp(&app);
     return 0;
 }
 
 // 4. function implementations
-
-void parse_arguments(int argc, char *argv[], MandelbrotConfig *config){
+void parseArguments(AppState *app, int argc, char *argv[]){
     // TODO: Loop through argv to check for "-position" or "-colors"
     // set position, colors, scale
     // Use standard string comparion strcmp()
 }
 
-bool init_app(AppState *app, int width, int height) {
+bool initApp(AppState *app) {
+    // Init mandelbrot config
+    app->config = (MandelbrotConfig){
+        .center = -0.75,
+        .range = 3.0-3.0*I,
+        .maxIterations = 40
+    };
+
+    app->colors.mode = COLOR_EXTRAPOLATE;
+    app->colors.setColor = 0x000000FF; // Solid black for mandelbrot set
+    app->colors.noSetSize = 40;
+    app->colors.noSetColors = (Uint32 *) malloc(sizeof(Uint32) * app->colors.noSetSize);
+    if(!app->colors.noSetColors) {
+        SDL_Log("Failed to allocate memory for app->colors.noSetColors");
+    }
+    int defaultPalette[][3] = {
+        {0xdb, 0x07, 0x3d},
+        {0xdb, 0xa5, 0x07},
+        {0x8e, 0xc7, 0xd2},
+        {0x0d, 0x69, 0x86},
+        {0x07, 0x48, 0x5b},
+        {0xdb, 0x07, 0x3d}
+    };
+    int defsz = sizeof(defaultPalette) / sizeof(defaultPalette[0]);
+    int section_width = (int) app->colors.noSetSize / (defsz-1);
+    for (int x = 0; x < app->colors.noSetSize; x++) {
+        int i = (int) x / section_width;
+        double p = (SDL_cos((double) (x%section_width) / section_width * SDL_PI_D ) + 1.0) /2.0;
+        SDL_Log("-> %i % 2.3f\n", i, p);
+        int r1 = defaultPalette[i][0];
+        int g1 = defaultPalette[i][1];
+        int b1 = defaultPalette[i][2];
+        int r2 = defaultPalette[i+1][0];
+        int g2 = defaultPalette[i+1][1];
+        int b2 = defaultPalette[i+1][2];
+        int r = r2 - (r2-r1)*p;
+        int g = g2 - (g2-g1)*p;
+        int b = b2 - (b2-b1)*p;
+        SDL_Log(" %+ 3i %+ 3i %+ 3i\n", r, g, b);
+        app->colors.noSetColors[x] = (r << 24) | (g << 16) | (b << 8) | 0xFF;
+    }
+
+    // Init SDL Library
     if(!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("SDL_Init Error: %s", SDL_GetError());
         return false;
     }
 
+    // Init TTF for rendering fonts
     if(!TTF_Init()) {
         SDL_Log("TTF_Init Error: %s", SDL_GetError());
         SDL_Quit();
@@ -81,47 +116,45 @@ bool init_app(AppState *app, int width, int height) {
 
     // Create window
     if (!SDL_CreateWindowAndRenderer("Mandelbrot Explorer",
-                width, height, SDL_WINDOW_RESIZABLE,
+                800, 800, SDL_WINDOW_RESIZABLE,
                 &app->window, &app->renderer)) {
         SDL_Log("Window/Renderer Error: %s", SDL_GetError());
         SDL_Quit();
         return false;
     }
     SDL_GetWindowSize(app->window, 
-            &app->w_width, &app->w_height);
+            &app->width, &app->height);
     // Create texture where fractal is drawn
-    app->fractal_texture = SDL_CreateTexture(
+    app->fractalTexture = SDL_CreateTexture(
             app->renderer,
             SDL_PIXELFORMAT_RGBA8888,
             SDL_TEXTUREACCESS_STREAMING,
-            app->w_width, app->w_height
+            app->width, app->height
     );
-    if(!app->fractal_texture) {
+    if(!app->fractalTexture) {
         SDL_Log("Texture Error: %s", SDL_GetError());
         SDL_Quit();
         return false;
     }
 
-    app->ui_font = TTF_OpenFont(
+    // Open font used in the program
+    app->uiFont = TTF_OpenFont(
             "assets/GoogleSansCode-Regular.ttf", 20.0f);
-    if (!app->ui_font) {
+    if (!app->uiFont) {
         SDL_Log("Failed to load font: %s", SDL_GetError());
     }
 
-    // Initialize rect of app->fractal_texture
-    app->fractal_rect = (SDL_FRect) {
-        .x = 0, .y= 0,
-        .w = app->w_width, .h = app->w_height
-    };
-    draw_mandelbrot(app->fractal_texture, &app->config);
+    // Initialize rect of app->fractalTexture
+    restartFractalRect(app);
+    drawMandelbrot(app->fractalTexture, &app->config, &app->colors);
 
-    app->update_fractal = false;
+    app->updateFractal = false;
     app->running = true;
     app->show_info = true;
     return true;
 }
 
-void handle_events(AppState *app) {
+void handleEvents(AppState *app) {
     SDL_Event event;
     // Displacement when pressing UP, DOWN, LEFT, RIGHT, h,j,k,l keys.
     float displacement = 0.05;
@@ -143,19 +176,15 @@ void handle_events(AppState *app) {
                 // Update view
                 case SDLK_SPACE:
                 case SDLK_RETURN:
-                    app->fractal_rect = (SDL_FRect) {
-                        .x = 0, .y = 0,
-                        .w = app->w_width,
-                        .h = app->w_height
-                    };
-                draw_mandelbrot(app->fractal_texture, &app->config);
+                    restartFractalRect(app);
+                    drawMandelbrot(app->fractalTexture, &app->config, &app->colors);
                     break;
 
                 // Move upwards
                 case SDLK_UP:
                 case SDLK_K:
-                    app->fractal_rect.y +=
-                    app->w_height * displacement;
+                    app->fractalRect.y +=
+                    app->height * displacement;
                     app->config.center += 
                         -cimag(app->config.range)*displacement*I;
                     break;
@@ -163,8 +192,8 @@ void handle_events(AppState *app) {
                 // Move downwards
                 case SDLK_DOWN:
                 case SDLK_J:
-                    app->fractal_rect.y += 
-                        -app->w_height * displacement;
+                    app->fractalRect.y += 
+                        -app->height * displacement;
                     app->config.center += 
                         cimag(app->config.range)*displacement*I;
                     break;
@@ -172,8 +201,8 @@ void handle_events(AppState *app) {
                 // Move to the left 
                 case SDLK_LEFT:
                 case SDLK_H:
-                    app->fractal_rect.x += 
-                        app->w_width*displacement;
+                    app->fractalRect.x += 
+                        app->width*displacement;
                     app->config.center +=
                         -creal(app->config.range)*displacement;
                     break;
@@ -181,8 +210,8 @@ void handle_events(AppState *app) {
                 // Move to the Right
                 case SDLK_RIGHT:
                 case SDLK_L:
-                    app->fractal_rect.x +=
-                        -app->w_width*displacement;
+                    app->fractalRect.x +=
+                        -app->width*displacement;
                     app->config.center +=
                         creal(app->config.range)*displacement;
                     break;
@@ -191,36 +220,36 @@ void handle_events(AppState *app) {
                 case SDLK_PLUS:
                 case SDLK_S:
                     app->config.range *= 1/zoom; 
-                    app->fractal_rect.x = app->w_width/2 -
-                        (app->w_width/2 - app->fractal_rect.x)*zoom;
-                    app->fractal_rect.y = app->w_height/2 -
-                       (app->w_height/2 - app->fractal_rect.y)*zoom;
-                    app->fractal_rect.w *= zoom;
-                    app->fractal_rect.h *= zoom;
+                    app->fractalRect.x = app->width/2 -
+                        (app->width/2 - app->fractalRect.x)*zoom;
+                    app->fractalRect.y = app->height/2 -
+                       (app->height/2 - app->fractalRect.y)*zoom;
+                    app->fractalRect.w *= zoom;
+                    app->fractalRect.h *= zoom;
                     break;
 
                 // Zoom out view
                 case SDLK_MINUS:
                 case SDLK_A:
                     app->config.range *= zoom;
-                    app->fractal_rect.x = app->w_width/2 -
-                        (app->w_width/2 - app->fractal_rect.x)/zoom;
-                    app->fractal_rect.y = app->w_height/2 -
-                       (app->w_height/2 - app->fractal_rect.y)/zoom;
-                    app->fractal_rect.w *= 1/zoom;
-                    app->fractal_rect.h *= 1/zoom;
+                    app->fractalRect.x = app->width/2 -
+                        (app->width/2 - app->fractalRect.x)/zoom;
+                    app->fractalRect.y = app->height/2 -
+                       (app->height/2 - app->fractalRect.y)/zoom;
+                    app->fractalRect.w *= 1/zoom;
+                    app->fractalRect.h *= 1/zoom;
                     break;
 
                 // Increase the number of max iterations per point
                 case SDLK_P:
-                    app->config.max_iterations++;
+                    app->config.maxIterations++;
                     break;
 
                 // Decrase number of max iterations per point.
                 case SDLK_O:
-                    app->config.max_iterations--;
-                    if(app->config.max_iterations < 0)
-                        app->config.max_iterations = 0;
+                    app->config.maxIterations--;
+                    if(app->config.maxIterations < 0)
+                        app->config.maxIterations = 0;
                     break;
 
                 // Toggle visibility of info window.
@@ -230,46 +259,43 @@ void handle_events(AppState *app) {
 
                 // When 'G' is pressed, save screenshot.
                 case SDLK_G:
-                    save_screenshot(app->renderer);
+                    saveScreenshot(app->renderer);
                     break;
                 // TODO: Add key for saving image // to update config
             }
         } else if (event.type == SDL_EVENT_WINDOW_RESIZED) {
             // Update app state with new dimensions
-            app->w_width = event.window.data1;
-            app->w_height = event.window.data2;
-            app->config.range = (1 - I*app->w_height/app->w_width)*
+            app->width = event.window.data1;
+            app->height = event.window.data2;
+            app->config.range = (1 - I*app->height/app->width)*
                     creal(app->config.range);
 
-            if (app->fractal_texture) {
-                SDL_DestroyTexture(app->fractal_texture);
+            if (app->fractalTexture) {
+                SDL_DestroyTexture(app->fractalTexture);
             }
 
-            app->fractal_texture = SDL_CreateTexture(
+            app->fractalTexture = SDL_CreateTexture(
                     app->renderer,
                     SDL_PIXELFORMAT_RGBA8888,
                     SDL_TEXTUREACCESS_STREAMING,
-                    app->w_width, app->w_height
+                    app->width, app->height
             );
 
-            app->fractal_rect = (SDL_FRect) {
-                .x = 0, .y = 0,
-                .w = app->w_width,
-                .h = app->w_height
-            };
-            draw_mandelbrot(app->fractal_texture, &app->config);
+            restartFractalRect(app);
+            drawMandelbrot(app->fractalTexture, &app->config, &app->colors);
         }
     }
 }
 
-void render_all(AppState *app) {
+void renderAll(AppState *app) {
+    // clear screen
     SDL_SetRenderDrawColor(app->renderer, 40, 40, 40, 255);
     SDL_RenderClear(app->renderer);
     // Render drawn fractal on window
-    SDL_RenderTexture(app->renderer, app->fractal_texture,
-            NULL, &app->fractal_rect);
+    SDL_RenderTexture(app->renderer, app->fractalTexture,
+            NULL, &app->fractalRect);
     // Render info text
-    if (app->ui_font && app->show_info) {
+    if (app->uiFont && app->show_info) {
         SDL_Color info_color = {255,255,255,255};
         char info_text[256];
         snprintf(info_text, sizeof(info_text),
@@ -277,11 +303,11 @@ void render_all(AppState *app) {
                 "\nMax Iter: %d\nStatus: %s",
                 creal(app->config.center), cimag(app->config.center),
                 creal(app->config.range), cimag(app->config.range),
-                app->config.max_iterations,
-                app->update_fractal? "Drawing..." : "Idle");
+                app->config.maxIterations,
+                app->updateFractal? "Drawing..." : "Idle");
         float tw,th;
-        SDL_Texture *info_texture = render_text(app->renderer, 
-                app->ui_font, info_text, info_color, &tw, &th);
+        SDL_Texture *info_texture = renderText(app->renderer, 
+                app->uiFont, info_text, info_color, &tw, &th);
         if (!info_texture) {
             SDL_Log("Couldn't render text: %s", SDL_GetError());
         }
@@ -297,17 +323,25 @@ void render_all(AppState *app) {
     SDL_RenderPresent(app->renderer);
     // Makes ~30 FPS
 }
+void restartFractalRect(AppState *app) {
+    app->fractalRect = (SDL_FRect) {
+        .x = 0, .y = 0,
+        .w = app->width,
+        .h = app->height
+    };
+}
 
-void save_screenshot(SDL_Renderer *renderer) {
+void saveScreenshot(SDL_Renderer *renderer) {
     // TODO: Use SDL3 surface functions to read pixels from
     // renderer ad save out a .png image file
 }
 
-void cleanup_app(AppState *app) {
-    if (app->ui_font) TTF_CloseFont(app->ui_font);
+void cleanupApp(AppState *app) {
+    if(!app->colors.noSetColors) free(app->colors.noSetColors);
+    if (app->uiFont) TTF_CloseFont(app->uiFont);
     if (app->renderer) SDL_DestroyRenderer(app->renderer);
     if (app->window) SDL_DestroyWindow(app->window);
-    if (app->fractal_texture) SDL_DestroyTexture(app->fractal_texture);
+    if (app->fractalTexture) SDL_DestroyTexture(app->fractalTexture);
 
     TTF_Quit();
     SDL_Quit();

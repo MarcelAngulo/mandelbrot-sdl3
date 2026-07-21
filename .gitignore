@@ -6,3 +6,6 @@ obj/
 venv/
 __pychache__/
 *.pyc
+
+# Generated files by C and Python programs.
+output/
