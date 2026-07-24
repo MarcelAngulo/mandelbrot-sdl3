@@ -7,16 +7,11 @@
 #include <stdio.h>
 #include "mandelbrot.h"
 
-typedef enum {
-    COLOR_ARRAY,
-    COLOR_MONO
-} ColorMode;
 // COLOR_EXTRAPOLATE: calculate the rest of the colors using cos funtion
 // COLOR_ARRAY: use only colors in array
 // COLOR_MONO: use only one color which is as brighter as the escape
 // number.
 typedef struct {
-    ColorMode mode;
     Uint32 setColor;
     Uint32 *noSetColors;
     int noSetSize;

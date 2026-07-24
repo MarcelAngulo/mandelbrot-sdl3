@@ -9,6 +9,7 @@
 typedef struct {
     COMPLEX_TYPE center; // e.g., -0.5 + 0.0 * I
     COMPLEX_TYPE range; // width and height span in the complex plane
+    COMPLEX_TYPE power;
     int maxIterations;
 } MandelbrotConfig;
 
