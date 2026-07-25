@@ -1,29 +1,51 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
+#include <SDL3_image/SDL_image.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <stdio.h>
+#include <time.h>
 #include "mandelbrot.h"
 #include "render.h"
 
 #define streq(s1,s2) (strcmp(s1, s2) == 0)
 /* TODO LIST:
- *
- * 2) Implement mouse navigation. (moving and zooming)
- * 3) Implement to save screenshots. (in ./output with SDL_Image)
- * 5) Implement to show Key bindings options (to see what each key does)
- * 8) Impleemnt command line (to set commands)
+
+ * 8) Implement command line (to set commands)
  * 9) Implement to read and save states
+ *
+ * 10) Write README.md, license
  */
+
+char helpStr[] =
+"--------------| HELP |---------------\n"
+"z  F1      . help\n"
+"x          . return to last update\n"
+"a          . zoom out\n"
+"s          . zoom in\n"
+"q  ESCAPE  . quit app\n"
+"o  -       . decrease max iterations\n"
+"p  +       . increase max iterations\n"
+"g          . save screenshot\n"
+"h  LEFT    . move left\n"
+"l  RIGHT   . move right\n"
+"j  DOWN    . move down\n"
+"k  UP      . move up\n"
+"i          . toogle info view\n"
+"c          . toogle pointer view\n"
+"f          . fullscreen\n"
+"------------------------------------";
 
 // 1. App State Structure
 typedef struct {
     SDL_Window *window;
     SDL_Renderer *renderer;
     SDL_Texture *fractalTexture;
+    SDL_Texture *helpTexture;
     SDL_FRect fractalRect;
+    SDL_FRect helpRect;
     TTF_Font *uiFont;
     int width;
     int height;
@@ -34,8 +56,9 @@ typedef struct {
     bool updateFractal;
     bool showInfo;
     bool showPointer;
+    bool showHelp;
     char *file;
-    char *directory;
+    char *outDirectory;
 } AppState;
 
 // 2. Helper Function Declarations
@@ -44,7 +67,7 @@ bool parseArguments(AppState *app, int argc, char *argv[]);
 void handleEvents(AppState *app);
 void renderAll(AppState *app);
 void restartFractalRect(AppState *app);
-void saveScreenshot(SDL_Renderer *renderer);
+void saveScreenshot(AppState *app);
 void cleanupApp(AppState *app);
 void calculateColors(int size, Uint32 *base, int range, Uint32 *dest);
 bool parseDouble(const char *str, double *value);
@@ -169,12 +192,12 @@ bool parseArguments(AppState *app, int argc, char *argv[]){
                 parseDouble(argv[++i], &im)) {
                 app->config.power = app->configCopy.power = re + im*I;
             } else {
-                SDL_Log("Invalid \"--power | -o\" argument.\n"
+                SDL_Log("Invalid \"--power | -p\" argument.\n"
                         "Use: (--powep | -r) [double re] [double im]\n");
             }
         }
         else if (streq(arg, "--colors") || streq(arg, "-s")) {
-            Uint32 setColor, *noSetColors;
+            Uint32 setColor;
             long int size, rng;
             // Parse first 3 arguments
             if ( i + 3 < argc &&
@@ -198,9 +221,6 @@ bool parseArguments(AppState *app, int argc, char *argv[]){
                 parseColor(argv[i], &palette[k], 16);
             }
             i--;
-
-            // Free previous asked memory
-            free(app->colors.noSetColors);
 
             // Ask for new memory
             app->colors.noSetColors = (Uint32 *) malloc(sizeof(Uint32) * rng);
@@ -301,7 +321,7 @@ bool initApp(AppState *app) {
         .center = -0.75,
         .range = 3.0-3.0*I,
         .power = 2.0,
-        .maxIterations = 40
+        .maxIterations = 20
     };
     app->configCopy = app->config;
 
@@ -361,6 +381,28 @@ bool initApp(AppState *app) {
         SDL_Log("Failed to load font: %s", SDL_GetError());
     }
 
+    // Render help texture
+    SDL_Color white = {0xff, 0xff, 0xff, 0xff};
+    app->helpTexture = renderText(app->renderer,
+            app->uiFont, helpStr, white,
+            &app->helpRect.w, &app->helpRect.h);
+    app->helpRect.x = (app->width - app->helpRect.w)/2;
+    app->helpRect.y = (app->height - app->helpRect.h)/2;
+
+    // Creates default output path
+    char *base = SDL_GetBasePath();
+    if (!base) {
+        SDL_Log("Failed to allocate memory: %s", SDL_GetError());
+    }
+    char out[] = "../output/";
+    app->outDirectory = (char *) malloc(sizeof(char) * (strlen(out) + strlen(base) + 1));
+    if (!app->outDirectory) {
+        SDL_Log("Failed to allocate memory: %s", strerror(errno));
+        return EXIT_FAILURE;
+    }
+    strcpy(app->outDirectory, base);
+    strcat(app->outDirectory, out);
+
     // Initialize rect of app->fractalTexture
     //restartFractalRect(app);
     //drawMandelbrot(app->fractalTexture, &app->config, &app->colors);
@@ -369,6 +411,7 @@ bool initApp(AppState *app) {
     app->running = true;
     app->showInfo = true;
     app->showPointer = true;
+    app->showHelp = false;
     return EXIT_SUCCESS;
 }
 
@@ -389,6 +432,11 @@ void handleEvents(AppState *app) {
                 case SDLK_Q:
                 case SDLK_ESCAPE:
                     app->running = false;
+                    break;
+
+                case SDLK_Z:
+                case SDLK_F1:
+                    app->showHelp = !app->showHelp;
                     break;
 
                 // Update view
@@ -498,7 +546,7 @@ void handleEvents(AppState *app) {
 
                 // When 'G' is pressed, save screenshot.
                 case SDLK_G:
-                    saveScreenshot(app->renderer);
+                    saveScreenshot(app);
                     break;
             }
         } else if (event.type == SDL_EVENT_WINDOW_RESIZED) {
@@ -521,11 +569,41 @@ void handleEvents(AppState *app) {
 
             app->configCopy = app->config;
             app->updateFractal = true;
+            app->helpRect.x = (app->width - app->helpRect.w)/2;
+            app->helpRect.y = (app->height - app->helpRect.h)/2;
             renderAll(app);
             restartFractalRect(app);
             drawMandelbrot(app->fractalTexture, &app->config, &app->colors);
             app->updateFractal = false;
             renderAll(app);
+        } else if (event.type == SDL_EVENT_MOUSE_MOTION) {
+            if(event.motion.state & SDL_BUTTON_LMASK) {
+                float xrel =  event.motion.xrel;
+                float yrel =  event.motion.yrel;
+                    app->fractalRect.x += xrel;
+                    app->config.center += xrel*-creal(app->config.range)/app->width;
+                    app->fractalRect.y += yrel;
+                    app->config.center += yrel * -cimag(app->config.range)*I/app->height;
+            }
+        } else if (event.type == SDL_EVENT_MOUSE_WHEEL) {
+            float y = event.wheel.y;
+            if ( y > 0 ) {
+                app->config.range *= 1/zoom; 
+                app->fractalRect.x = app->width/2 -
+                    (app->width/2 - app->fractalRect.x)*zoom;
+                app->fractalRect.y = app->height/2 -
+                   (app->height/2 - app->fractalRect.y)*zoom;
+                app->fractalRect.w *= zoom;
+                app->fractalRect.h *= zoom;
+            } else if ( y < 0 ) {
+                app->config.range *= zoom;
+                app->fractalRect.x = app->width/2 -
+                    (app->width/2 - app->fractalRect.x)/zoom;
+                app->fractalRect.y = app->height/2 -
+                   (app->height/2 - app->fractalRect.y)/zoom;
+                app->fractalRect.w *= 1/zoom;
+                app->fractalRect.h *= 1/zoom;
+            }
         }
     }
 }
@@ -554,10 +632,10 @@ void renderAll(AppState *app) {
         if (!info_texture) {
             SDL_Log("Couldn't render text: %s", SDL_GetError());
         }
-        SDL_FRect dest_rect = { 0.0f, 0.0f, tw, th };
+        SDL_FRect destRect = { 0.0f, 0.0f, tw, th };
         SDL_SetRenderDrawColor(app->renderer, 0, 0, 0, 255);
-        SDL_RenderFillRect(app->renderer, &dest_rect);
-        SDL_RenderTexture(app->renderer, info_texture, NULL,&dest_rect);
+        SDL_RenderFillRect(app->renderer, &destRect);
+        SDL_RenderTexture(app->renderer, info_texture, NULL,&destRect);
         SDL_DestroyTexture(info_texture);
     }
 
@@ -589,6 +667,24 @@ void renderAll(AppState *app) {
         }
     }
 
+    if (app->showHelp) {
+        float pad = 10;
+        SDL_FRect r = app->helpRect;
+        r.x -= pad;
+        r.y -= pad;
+        r.w += 2*pad;
+        r.h += 2*pad;
+        SDL_SetRenderDrawColor(app->renderer,
+                0, 0, 0, 240);
+        SDL_RenderFillRect(app->renderer, &r);
+
+        SDL_SetRenderDrawColor(app->renderer,
+                0xff, 0xff, 0xff, 240);
+
+        SDL_RenderTexture(app->renderer, app->helpTexture,
+                NULL, &app->helpRect);
+    }
+
     SDL_RenderPresent(app->renderer);
     // Makes ~30 FPS
 }
@@ -600,15 +696,50 @@ void restartFractalRect(AppState *app) {
     };
 }
 
-void saveScreenshot(SDL_Renderer *renderer) {
+void saveScreenshot(AppState *app) {
+    // Generating Filename based on date and time
+    time_t rawTime;
+    struct tm *info;
+    char buffer[80];
+    time(&rawTime);
+    info = localtime(&rawTime);
+    strftime(buffer, sizeof(buffer), "%Y%m%d%H%M%S.png", info);
+    SDL_Surface *surface = NULL;
+    char *outFilename = (char *) malloc(
+            sizeof(char) * (strlen(app->outDirectory) + strlen(buffer) + 1));
+    if (!outFilename) {
+        SDL_Log("Error allocating memory for outFilename: %s", strerror(errno));
+        goto end;
+    }
+    strcpy(outFilename, app->outDirectory);
+    strcat(outFilename, buffer);
+
+    // Reading image from app->renderer
+    surface = SDL_RenderReadPixels(app->renderer, NULL);
+    if (!surface) {
+        SDL_Log("Error to read pixels: %s", SDL_GetError());
+        goto end;
+    }
+
+    if (!IMG_SavePNG(surface, outFilename)) {
+        SDL_Log("Error saving \"%s\": %s", outFilename, SDL_GetError());
+    } else {
+        SDL_Log("Saved \"%s\" image successfully.", outFilename);
+    }
+
+end:
+    free(outFilename);
+    SDL_DestroySurface(surface);
 }
 
 void cleanupApp(AppState *app) {
-    if(!app->colors.noSetColors) free(app->colors.noSetColors);
+    if (app->colors.noSetColors) free(app->colors.noSetColors);
+    if (app->outDirectory) free(app->outDirectory);
     if (app->uiFont) TTF_CloseFont(app->uiFont);
     if (app->renderer) SDL_DestroyRenderer(app->renderer);
     if (app->window) SDL_DestroyWindow(app->window);
     if (app->fractalTexture) SDL_DestroyTexture(app->fractalTexture);
+    if (app->helpTexture) SDL_DestroyTexture(app->helpTexture);
 
     TTF_Quit();
     SDL_Quit();
