@@ -2,18 +2,10 @@
 # Mandelbrot Fractal Explorer
 A fully interactive written in C Mandelbrot Fractal Explorer using SDL3 + Python Script to visualize color palettes.
 
-
-![--colors 000000 100 4 000764 206bcb edffff ffaa00](./assets/deep-blue.png)
-![Capture from Sway](./assets/desktop.png)
-![Spiral](./assets/espiral.png)
-![Rendering z=z³+c](./assets/z3.png)
-![Rendering z=z³+c](./assets/z3-2.png)
 ![Beautiful Images](./assets/tornasol.png)
 ![](./assets/tornasol2.png)
-![](./assets/bonito.png)
+![Spiral](./assets/espiral.png)
 ![](./assets/bonito2.png)
-![](./assets/bonito3.png)
-![Rendering z=z²⁺⁰·¹](./assets/exp-im.png)
 
 
 ## Features
