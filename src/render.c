@@ -1,7 +1,7 @@
 
 #include "render.h"
 #include "mandelbrot.h"
-
+/*
 void drawMandelbrot(SDL_Texture *texture, const MandelbrotConfig *config, const MandelbrotColors *colors) {
     void *pixels;
     int pitch;
@@ -41,25 +41,14 @@ void drawMandelbrot(SDL_Texture *texture, const MandelbrotConfig *config, const 
                 pixel_buffer[pixel_index] = colors->noSetColors[r % colors->noSetSize];
             }
 
-            /*
-            Uint8 red, green, blue;
-
-            // Determine pixel color based on the escape number.
-            calculatePixelColor(r, config->maxIterations, &red, &green, &blue);
-
-            // Pack the channels into a single 32-bit integer
-            // (RGBA8888 layout) pitch / 4 handles the exact
-            // alignment memory offset per row
-            int pixel_index = y * (pitch / 4) + x;
-            pixel_buffer[pixel_index] =
-                (red << 24) | (green << 16) | (blue << 8) | 0xFF;
-                */
         }
     }
 
     // 3. Unlock the texture to upload the finished image to the GPU
     SDL_UnlockTexture(texture);
 }
+
+*/
 
 // Creates a texture with text
 SDL_Texture *renderText(SDL_Renderer *renderer, TTF_Font *font, char *text, SDL_Color color, float *w, float *h) {

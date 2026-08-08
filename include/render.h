@@ -19,7 +19,6 @@ typedef struct {
 // Lops through every single pixel on the screen, calls the math
 // module for the value, maps that value to a color, and updates
 // the SDL texture or window surface.
-void drawMandelbrot(SDL_Texture *texture, const MandelbrotConfig *config, const MandelbrotColors *colors);
 SDL_Texture *renderText(SDL_Renderer *renderer, TTF_Font *font, char *text, SDL_Color color, float *w, float *h);
 
 #endif

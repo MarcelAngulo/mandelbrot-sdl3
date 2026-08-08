@@ -67,13 +67,7 @@ def main():
         for y in range(50):
             pixels[x,y] = (int(r), int(g), int(b))
 
-    # Get script absolute directory
-    script_dir = Path(__file__).resolve().parent
-    # Generate the directory which will contain the image
-    output_dir = script_dir.parent / "output"
-    # Create directory if necessary
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_filename = output_dir / "palette_preview.png"
+    output_filename = "palette_preview.png"
     img.save(output_filename)
     print(f"Successfully saved to {output_filename}")
 
