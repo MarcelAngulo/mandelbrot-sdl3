@@ -11,6 +11,7 @@
 // This file contains declarations of functions that doesn't take
 // AppState pointer as argument and have different purposes.
 
+
 bool parse_double(const char *str, double *value);
 bool parse_long(const char *str, long int *value, long int base);
 bool parse_color(const char *str, Uint32 *value, int base);

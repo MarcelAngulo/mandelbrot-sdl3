@@ -8,4 +8,6 @@ __pychache__/
 *.pyc
 
 # Generated files by C and Python programs.
-output/
+scripts/*.png
+*.png
+*.txt

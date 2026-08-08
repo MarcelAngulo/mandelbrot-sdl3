@@ -1,38 +1,29 @@
 
 #define SDL_MAIN_USE_CALLBACKS 1
-#include <SDL3/SDL.h>
-#include <SDL3_ttf/SDL_ttf.h>
-#include <SDL3_image/SDL_image.h>
 #include <SDL3/SDL_main.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <stdio.h>
-#include <time.h>
-#include "mandelbrot.h"
+#include "app.h"
 #include "render.h"
 #include "utils.h"
+#include "commands.h"
+#include "file_io.h"
+#include "logger.h"
 
-#define streq(s1,s2) (strcmp(s1, s2) == 0)
-#define COMMAND_BUFFER_SIZE 1000
-#define MAX_ARGS 20
-#define FONT_RELATIVE_PATH "../assets/GoogleSansCode-Regular.ttf"
-#define DEFAULT_IMAGE_FILENAME "%Y%m%d%H%M%S.png"
-#define DEFAULT_APPSTATE_FILENAME "%Y%m%d%H%M%S.txt"
 /* TODO LIST:
  *
  * POSSIBLE TODO LIST:
- * 1) ADVANCED errors for errors, info, etc
- * 4) Cambiar nombres de variables a camel case
- * 5) annadir command argument para guardar output directory y read file
- * 5) Reorganize code (clean large function, split files, etc)
- * 3) Adding other forms of color (colors that alterns)
- * 4) Adding advanced message OUTPUT (with line, char, function, message, etc)
- * 6) README usage and command line
- * 7) Revisar read_status (nunca la probe)
+ * 5) annadir command argument para guardar output
+ *       directory(chequear / al final) y read file
+ * 5) event_handling events
+ * 7) Revisar read_status (nunca la probe) para leer otros archivos
+ * 1) Create little message bottom screen with info
+ * 6) escribir README usage and command line
  */
 
-char helpStr[] =
+char help_str[] =
 "--------------| HELP |---------------\n"
 "z  F1      . help\n"
 "x          . return to last update\n"
@@ -51,437 +42,11 @@ char helpStr[] =
 "f          . fullscreen\n"
 "------------------------------------";
 
-char modeStr[][10] = {
-    "Explorer",
-    "Command"
-};
-
-typedef enum {
-    MODE_EXPLORE = 0,
-    MODE_COMMAND = 1
-} AppMode;
-
-SDL_Color white = {0xff, 0xff, 0xff, SDL_ALPHA_OPAQUE};
-
-// 1. App State Structure
-typedef struct {
-    SDL_Window *window;
-    SDL_Renderer *renderer;
-    SDL_Texture *fractalTexture;
-    SDL_Texture *helpTexture;
-    SDL_Texture *infoTexture;
-    SDL_Texture *commandTexture;
-    SDL_FRect fractalRect;
-    SDL_FRect helpRect;
-    SDL_FRect infoRect;
-    SDL_FRect commandRect;
-    TTF_Font *font;
-    int width;
-    int height;
-    MandelbrotConfig config;
-    MandelbrotConfig configCopy;
-    MandelbrotColors colors;
-    AppMode mode;
-    bool updateFractal;
-    bool showInfo;
-    bool showPointer;
-    bool showHelp;
-    char *base_path;
-    char *outDirectory;
-    char commandBuffer[COMMAND_BUFFER_SIZE];
-    unsigned long int commandLenght;
-} AppState;
-
-// 2. Helper Function Declarations
-bool parse_arguments(AppState *app, int argc, char *argv[]);
-bool execute_command(AppState *app, int argc, char *argv[]);
-void render_all(AppState *app);
-
-void update_texture_info(AppState *app);
-void update_texture_command(AppState *app);
-void update_texture_fractal(AppState *app);
-
-void save_image(AppState *app, char *fn);
-void save_status(AppState *app, char *fn);
-void read_status(AppState *app, char *fn);
-void view_displace(AppState *app, double dxp, double dyp);
-void view_zoom(AppState *app, double factor);
-void view_resize(AppState *app, double xratio, double yratio);
-
-// Displace view in dxp, dyp pixels horizontally and vertically
-void view_displace(AppState *app, double dxp, double dyp) {
-    app->fractalRect.y +=  dyp;
-    app->config.center += -dyp*cimag(app->config.range)/app->height*I;
-    app->fractalRect.x += -dxp;
-    app->config.center +=  dxp*creal(app->config.range)/app->width;
-}
-void view_zoom(AppState *app, double factor) {
-    app->config.range *= factor;
-    app->fractalRect.x = app->width/2 -
-        (app->width/2 - app->fractalRect.x)/factor;
-    app->fractalRect.y = app->height/2 -
-       (app->height/2 - app->fractalRect.y)/factor;
-    app->fractalRect.w *= 1/factor;
-    app->fractalRect.h *= 1/factor;
-}
-void view_resize(AppState *app, double xratio, double yratio) {
-    app->config.range = creal(app->config.range)*xratio + cimag(app->config.range)*yratio*I;
-
-    app->fractalRect.x += app->width/2*(xratio-1);
-    app->fractalRect.y += app->height/2*(yratio-1);
-}
-void update_texture_fractal(AppState *app) {
-    void *pixels;
-    int pitch;
-    float width,height;
-    // Get size in pixels of texture
-    SDL_GetTextureSize(app->fractalTexture, &width, &height);
-    // Creates a new texture to render if old texture dimensions
-    // are not equal to those of window
-    if (width != app->width || height != app->height) {
-        width = app->width;
-        height = app->height;
-
-        SDL_DestroyTexture(app->fractalTexture);
-        app->fractalTexture = SDL_CreateTexture(
-                app->renderer, SDL_PIXELFORMAT_RGBA8888,
-                SDL_TEXTUREACCESS_STREAMING,
-                app->width, app->height);
-    }
-
-
-    // 1. Lock the texture to gain direct access
-    // to its raw pixel buffer memory
-    if (!SDL_LockTexture(app->fractalTexture, NULL, &pixels, &pitch) != 0) {
-        SDL_Log("Failed to lock texture: %s", SDL_GetError());
-        return;
-    }
-
-    // A pitch is the number of bytes in one row of pixels. 
-    // Since we use RGBA8888, each pixel is 4 bytes.
-    Uint32 *pixel_buffer = (Uint32 *)pixels;
-    COMPLEX_TYPE top_left = app->config.center - app->config.range/2;
-
-
-    // 2. Loop through and write directly to the raw memory array
-    for(int y = 0; y < height; y++) {
-        for(int x = 0; x < width; x++) {
-            double complex c = top_left +
-                x*creal(app->config.range)/width +
-                y*cimag(app->config.range)/height*I;
-
-            // Calculate how many iterations are needed to c to escape
-            // If r==config->max_iterations, then c possibly belongs to
-            // Mandelbrot Set, if not, doesn't belong
-            int r = calculateEscape(c, &app->config);
-
-            int pixel_index = y * (pitch / 4) + x;
-            if (r == app->config.maxIterations){
-                pixel_buffer[pixel_index] = app->colors.setColor;
-            } else {
-                pixel_buffer[pixel_index] = app->colors.noSetColors[r % app->colors.noSetSize];
-            }
-        }
-    }
-
-    // 3. Unlock the texture to upload the finished image to the GPU
-    SDL_UnlockTexture(app->fractalTexture);
-    app->fractalRect = (SDL_FRect) {
-        .x = 0, .y = 0,
-        .w = app->width,
-        .h = app->height
-    };
-    app->configCopy = app->config;
-}
-
-
-bool execute_command(AppState *app, int argc, char *argv[]) {
-    for(int i = 0; i < argc; i++){
-        char *arg = argv[i];
-        if (streq(arg, "center") || streq(arg, "c")) {
-            double re, im;
-            if ( i + 2 < argc &&
-                parse_double(argv[++i], &re) &&
-                parse_double(argv[++i], &im)) {
-                app->config.center = app->configCopy.center = re + im*I;
-            } else {
-                SDL_Log("Invalid \"center | c\" command.\n"
-                        "Use: (center | c) [double re] [double im]\n");
-            }
-        }
-        else if (streq(arg, "range") || streq(arg, "r")) {
-            double range;
-            if ( i + 1 < argc && parse_double(argv[++i], &range)) {
-                app->config.range = (1 - I*app->height/app->width)*range;
-            } else {
-                SDL_Log("Invalid \"range | r\" command.\n"
-                        "Use: (range | r) [double re]\n");
-            }
-        }
-        else if (streq(arg, "window") || streq(arg, "w")) {
-            long int width, height;
-            if ( i + 2 < argc &&
-                parse_long(argv[++i], &width, 10) && width > 0 &&
-                parse_long(argv[++i], &height, 10) && height > 0) {
-                app->config.range = (1 - I*height/width)*creal(app->config.range);
-                app->width = width;
-                app->height = height;
-                SDL_SetWindowSize(app->window, width, height);
-            } else {
-                SDL_Log("Invalid \"window | w\" command.\n"
-                        "Use: (window | w) [long int width > 0] [long int height > 0]\n");
-            }
-        }
-        else if (streq(arg, "maxiter") || streq(arg, "i")) {
-            long int maxIter;
-            if ( i + 1 < argc && parse_long(argv[++i], &maxIter, 10) && maxIter > 0) {
-                app->config.maxIterations = app->configCopy.maxIterations = maxIter;
-            } else {
-                SDL_Log("Invalid \"maxiter | i\" argument.\n"
-                        "Use: (maxIter | i) [long int iters > 0]\n");
-            }
-        }
-        else if (streq(arg, "power") || streq(arg, "p")) {
-            long power;
-            if ( i + 1 < argc &&
-                parse_long(argv[++i], &power, 10)) {
-                app->config.power = app->configCopy.power = power;
-            } else {
-                SDL_Log("Invalid \"power | p\" argument.\n"
-                        "Use: (power | p) [double re] [double im]\n");
-            }
-        }
-        else if (streq(arg, "colors") || streq(arg, "s")) {
-            Uint32 setColor;
-            long int size, rng;
-            // Parse first 3 arguments
-            if ( i + 3 < argc &&
-                parse_color(argv[++i], &setColor, 16) &&
-                parse_long(argv[++i], &rng, 10) && rng > 0 &&
-                parse_long(argv[++i], &size, 10) && size > 0 && i + size <  argc) {
-                // Parse colors
-                app->colors.setColor = setColor;
-                int end = ++i + size;
-                // Now will parse the colors to store in app->colorS.noSetColors
-                Uint32 *palette = (Uint32 *) malloc(sizeof(Uint32) *size);
-                if (!palette) {
-                    SDL_Log("Could not allocate memory for *palette in parse_arguments: "
-                            "%s\n", strerror(errno));
-                    return EXIT_FAILURE;
-                }
-                // Save colors in a temporary array
-                for (int k = 0; i < end; i++, k++) {
-                    parse_color(argv[i], &palette[k], 16);
-                }
-                i--;
-
-                // Ask for new memory
-                app->colors.noSetColors = (Uint32 *) malloc(sizeof(Uint32) * rng);
-                if(!app->colors.noSetColors) {
-                    SDL_Log("Could not allocate memory for app->colors.noSetColors in parse_arguments: "
-                            "%s\n", strerror(errno));
-                    free(palette);
-                    return EXIT_FAILURE;
-                }
-
-                // Stores new colors
-                calculate_colors(size, palette, rng, app->colors.noSetColors);
-
-                app->colors.noSetSize = rng;
-                // Free temporary array
-                free(palette);
-            } else {
-                SDL_Log("Invalid \"colors | s\" argument.\n"
-                        "Use: (colors | s) [Uint32 setColor] [int range > 0] [int 20 > size > 0] [Uint32 noSetcolors[size]]\n");
-            }
-        }
-        else if (streq(arg, "showpointer")) {
-            if ( i + 1 < argc && streq(argv[i+1], "true") ) {
-                app->showPointer = true;
-                i++;
-            } else if ( i + 1 < argc && streq(argv[i+1], "false") ) {
-                app->showPointer = false;
-                i++;
-            } else {
-                SDL_Log("Invalid \"showpointer\" argument.\n"
-                        "Use: showpointer [true | false]\n");
-            }
-        }
-        else if (streq(arg, "showinfo")) {
-            if ( i + 1 < argc && streq(argv[i+1], "true") ) {
-                app->showInfo = true;
-                i++;
-            } else if ( i + 1 < argc && streq(argv[i+1], "false") ) {
-                app->showInfo = false;
-                i++;
-            } else {
-                SDL_Log("Invalid \"showinfo\" argument.\n"
-                        "Use: (showinfo) [true | false]\n");
-            }
-        }
-        else if (streq(arg, "screenshot")) {
-            if (i+1 < argc && !streq(argv[++i], "--default")) {
-                save_image(app, argv[i]);
-            } else {
-                save_image(app, DEFAULT_IMAGE_FILENAME);
-            }
-        }
-        else if (streq(arg, "read")) {
-            ; // read
-        }
-        else if (streq(arg, "write")) {
-            if (i+1 < argc && !streq(argv[++i], "--default")) {
-                save_status(app, argv[i]);
-            } else {
-                save_status(app, DEFAULT_APPSTATE_FILENAME);
-            }
-        }
-    }
-    return true;
-}
-
-// 4. function implementations
-bool parse_arguments(AppState *app, int argc, char *argv[]){
-    // ### CONFIG ###
-    // --center [double] (double)
-    // --range [double] 
-    // --power [double] (double)
-    // --window [int > 0] [int > 0]
-    // --maxIter [N]
-    // ### COLORS ###
-    // --colors [Uint32 set] [long int range] [long int N] [Uint32 noSet[N]]
-    // --setColor [N] [0x------]
-    // ### STRING ###
-    // --dir [str(/)]
-    // --open [dir/filename]
-    // ### BOOLEAN ###
-    // --showPointer
-    // --hidePointer
-    // --showInfo
-    // --hideInfo
-    // --fullScreen
-    // --help | -h
-    for (int i = 1; i < argc; i++) {
-        char *arg = argv[i];
-        if (streq(arg, "--center") || streq(arg, "-c")) {
-            double re, im;
-            if ( i + 2 < argc &&
-                parse_double(argv[++i], &re) &&
-                parse_double(argv[++i], &im)) {
-                app->config.center = app->configCopy.center = re + im*I;
-            } else {
-                SDL_Log("Invalid \"--center | -c\" argument.\n"
-                        "Use: (--center | -r) [double re] [double im]\n");
-            }
-        }
-        else if (streq(arg, "--range") || streq(arg, "-r")) {
-            double range;
-            if ( i + 1 < argc && parse_double(argv[++i], &range)) {
-                app->config.range = (1 - I*app->height/app->width)*range;
-            } else {
-                SDL_Log("Invalid \"--range | -r\" argument.\n"
-                        "Use: (--range | -r) [double re]\n");
-            }
-        }
-        else if (streq(arg, "--window") || streq(arg, "-w")) {
-            long int width, height;
-            if ( i + 2 < argc &&
-                parse_long(argv[++i], &width, 10) && width > 0 &&
-                parse_long(argv[++i], &height, 10) && height > 0) {
-                app->config.range = (1 - I*height/width)*creal(app->config.range);
-                app->width = width;
-                app->height = height;
-                SDL_SetWindowSize(app->window, width, height);
-            } else {
-                SDL_Log("Invalid \"--window | -w\" argument.\n"
-                        "Use: (--window | -w) [long int width > 0] [long int height > 0]\n");
-            }
-        }
-        else if (streq(arg, "--maxiter") || streq(arg, "-i")) {
-            long int maxIter;
-            if ( i + 1 < argc && parse_long(argv[++i], &maxIter, 10) && maxIter > 0) {
-                app->config.maxIterations = app->configCopy.maxIterations = maxIter;
-            } else {
-                SDL_Log("Invalid \"--maxiter | -i\" argument.\n"
-                        "Use: (--maxiter | -i) [long int iters > 0]\n");
-            }
-        }
-        else if (streq(arg, "--power") || streq(arg, "-p")) {
-            long int power;
-            if ( i + 1 < argc && parse_long(argv[++i], &power, 10) && power >= 0) {
-                app->config.power = app->configCopy.power = power;
-            } else {
-                SDL_Log("Invalid \"--power | -p\" argument.\n"
-                        "Use: (--power | -p) [long int]\n");
-            }
-        }
-        else if (streq(arg, "--colors") || streq(arg, "-s")) {
-            Uint32 setColor;
-            long int size, rng;
-            // Parse first 3 arguments
-            if ( i + 3 < argc &&
-                parse_color(argv[++i], &setColor, 16) &&
-                parse_long(argv[++i], &rng, 10) && rng > 0 &&
-                parse_long(argv[++i], &size, 10) && size > 0 && i + size <  argc) {
-                app->colors.setColor = setColor;
-                int end = ++i + size;
-                // Now will parse the colors to store in app->colorS.noSetColors
-                Uint32 *palette = (Uint32 *) malloc(sizeof(Uint32) *size);
-                if (!palette) {
-                    SDL_Log("Could not allocate memory for *palette in parse_arguments: "
-                            "%s\n", strerror(errno));
-                }
-                // Save colors in a temporary array
-                for (int k = 0; i < end; i++, k++) {
-                    parse_color(argv[i], &palette[k], 16);
-                }
-                i--;
-
-                // Ask for new memory
-                app->colors.noSetColors = (Uint32 *) malloc(sizeof(Uint32) * rng);
-                if(!app->colors.noSetColors) {
-                    SDL_Log("Could not allocate memory for app->colors.noSetColors in parse_arguments: "
-                            "%s\n", strerror(errno));
-                    free(palette);
-                    return EXIT_FAILURE;
-                }
-
-                // Stores new colors
-                calculate_colors(size, palette,
-                        rng, app->colors.noSetColors);
-
-                app->colors.noSetSize = rng;
-                // Free temporary array
-                free(palette);
-            } else {
-                SDL_Log("Invalid \"--colors | -s\" argument.\n"
-                        "Use: (--colors | -s) [Uint32 setColor] [int range > 0] [int size > 0] [Uint32 noSetcolors[size]]\n");
-            }
-        }
-        else if (streq(arg, "--showPointer")) {
-            app->showPointer = true;
-        }
-        else if (streq(arg, "--showInfo")) {
-            app->showInfo = true;
-        }
-        else if (streq(arg, "--hidePointer")) {
-            app->showPointer = false;
-        }
-        else if (streq(arg, "--hideInfo")) {
-            app->showInfo = false;
-        }
-        else if (streq(arg, "exit")) {
-            exit(EXIT_SUCCESS);
-        }
-    }
-
-    return EXIT_SUCCESS;
-}
 
 SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
     AppState *app = (AppState *) calloc(1, sizeof(AppState));
     if (!app) {
-        SDL_Log("Memory Allocation Failed");
+        LOG_ERROR("Memory Allocation Failed");
         return SDL_APP_FAILURE;
     }
     *appstate = app;
@@ -496,33 +61,34 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
         .power = 2,
         .maxIterations = 20
     };
-    app->configCopy = app->config;
+    app->config_backup = app->config;
     
     // Default size of app
     app->width = 800;
     app->height = 800;
     app->mode = MODE_EXPLORE;
-    app->updateFractal = false;
-    app->showInfo = true;
-    app->showPointer = true;
-    app->showHelp = false;
+    app->is_rendering = false;
+    app->show_info = true;
+    app->show_pointer = true;
+    app->show_help = false;
 
     // Generates Default colors
     // Solid black for mandelbrot set
-    app->colors.setColor = 0x000000FF; 
+    app->colors.set_color = 0x000000FF; 
+    app->color_font = (SDL_Color) {0xFF, 0xFF, 0xFF, SDL_ALPHA_OPAQUE};
     // Colors of the points that don't belong to mandelbrot set.
-    app->colors.noSetSize = 50;
-    app->colors.noSetColors = (Uint32 *) malloc(sizeof(Uint32) * app->colors.noSetSize);
-    if(!app->colors.noSetColors) {
-        SDL_Log("Failed to allocate memory for app->colors.noSetColors: %s", strerror(errno));
+    app->colors.escape_palette_size = 50;
+    app->colors.escape_palette = (Uint32 *) malloc(sizeof(Uint32) * app->colors.escape_palette_size);
+    if(!app->colors.escape_palette) {
+        LOG_ERROR("Failed to allocate memory: %s", strerror(errno));
         return SDL_APP_FAILURE;
     }
-    Uint32 defaultPalette[] = {
+    Uint32 palette[] = {
         0xdb073dff, 0xdba507ff, 0x8ec7d2ff, 0x0d6986ff, 0x07485bff, 0xdb073dff
     };
     calculate_colors(
-        sizeof(defaultPalette)/sizeof(Uint32), defaultPalette,
-        app->colors.noSetSize, app->colors.noSetColors);
+        sizeof(palette)/sizeof(Uint32), palette,
+        app->colors.escape_palette_size, app->colors.escape_palette);
 
 
     // Parse arguments from command line
@@ -532,82 +98,84 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
 
     // Init SDL Library
     if(!SDL_Init(SDL_INIT_VIDEO)) {
-        SDL_Log("SDL_Init Error: %s", SDL_GetError());
+        LOG_ERROR("SDL_Init Error: %s", SDL_GetError());
         return SDL_APP_FAILURE;
     }
     // Init TTF for rendering fonts
     if(!TTF_Init()) {
-        SDL_Log("TTF_Init Error: %s", SDL_GetError());
+        LOG_ERROR("TTF_Init Error: %s", SDL_GetError());
         return SDL_APP_FAILURE;
     }
     // Create window
     if (!SDL_CreateWindowAndRenderer("Mandelbrot Explorer",
                 app->width, app->height, SDL_WINDOW_RESIZABLE,
                 &app->window, &app->renderer)) {
-        SDL_Log("Window/Renderer Error: %s", SDL_GetError());
+        LOG_ERROR("Failed to create window and renderer: %s", SDL_GetError());
         return SDL_APP_FAILURE;
     }
     // Create texture where fractal is drawn
-    app->fractalTexture = SDL_CreateTexture(
+    app->texture_fractal = SDL_CreateTexture(
             app->renderer,
             SDL_PIXELFORMAT_RGBA8888,
             SDL_TEXTUREACCESS_STREAMING,
             app->width, app->height
     );
-    if(!app->fractalTexture) {
-        SDL_Log("Texture Error: %s", SDL_GetError());
+    if(!app->texture_fractal) {
+        LOG_ERROR("Failed to create fractal texture: %s", SDL_GetError());
         return SDL_APP_FAILURE;
     }
 
     // Creates default output path
     const char* base_path = SDL_GetBasePath();
     if (!base_path) {
-        SDL_Log("Failed to get base_path: %s", SDL_GetError());
+        LOG_ERROR("Failed to get base path: %s", SDL_GetError());
         return SDL_APP_FAILURE;
     }
 
     // Creates a string to open the font
     char *font_path = join_strings(base_path, FONT_RELATIVE_PATH);
     if (!font_path) {
-        SDL_Log("Failed to create font path: %s", strerror(errno));
+        LOG_ERROR("Failed to create font path: %s", strerror(errno));
         return SDL_APP_FAILURE;
     }
     // Open font used in the program
     app->font = TTF_OpenFont(font_path, 20.0f);
 
     // Frees string used to open font
-    free(font_path);
     if (!app->font) {
-        SDL_Log("Failed to load font: %s", SDL_GetError());
+        LOG_ERROR("Failed to load font \"%s\": %s", font_path, SDL_GetError());
+        free(font_path);
         return SDL_APP_FAILURE;
     }
+    free(font_path);
 
     // Render help texture
-    app->helpTexture = renderText(app->renderer,
-            app->font, helpStr, white,
-            &app->helpRect.w, &app->helpRect.h);
-    if(!app->helpTexture) {
-        SDL_Log("Cannot create helpTexture: %s", SDL_GetError());
+    app->texture_help = renderText(app->renderer,
+            app->font, help_str, app->color_font,
+            &app->rect_help.w, &app->rect_help.h);
+    if(!app->texture_help) {
+        LOG_ERROR("Failed to create texture_help: %s", SDL_GetError());
         return SDL_APP_FAILURE;
     }
-    app->helpRect.x = (app->width - app->helpRect.w)/2;
-    app->helpRect.y = (app->height - app->helpRect.h)/2;
+    app->rect_help.x = (app->width - app->rect_help.w)/2;
+    app->rect_help.y = (app->height - app->rect_help.h)/2;
 
     char out[] = "./";
-    app->outDirectory = (char *) malloc(strlen(out)+1);
-    if (!app->outDirectory) {
-        SDL_Log("Failed to allocate memory: %s", strerror(errno));
+    app->output_path = (char *) malloc(strlen(out)+1);
+    if (!app->output_path) {
+        LOG_ERROR("Failed to allocate memory: %s", strerror(errno));
         return SDL_APP_FAILURE;
     }
-    strcpy(app->outDirectory, out);
+    strcpy(app->output_path, out);
 
     SDL_SetHint(SDL_HINT_MAIN_CALLBACK_RATE, "waitevent");
 
-    // Render infoTexture for the first time
+    // Render texture_info for the first time
     update_texture_info(app);
-    // Draw fractal on app->fractalTexture for the first time
+    // Draw fractal on app->texture_fractal for the first time
     update_texture_fractal(app);
 
+    LOG_INFO("Initialization completed!");
     return SDL_APP_CONTINUE;
 }
 
@@ -635,17 +203,17 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
 
                 case SDLK_Z:
                 case SDLK_F1:
-                    app->showHelp = !app->showHelp;
+                    app->show_help = !app->show_help;
                     break;
 
                 // Update view
                 case SDLK_SPACE:
                 case SDLK_RETURN:
-                    app->updateFractal = true;
+                    app->is_rendering = true;
                     update_texture_info(app);
                     render_all(app);
                     update_texture_fractal(app);
-                    app->updateFractal = false;
+                    app->is_rendering = false;
                     update_texture_info(app);
                     render_all(app);
                     break;
@@ -708,18 +276,22 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
 
                 // Toggle visibility of info window.
                 case SDLK_I:
-                    app->showInfo = !app->showInfo;
+                    app->show_info = !app->show_info;
                     update_texture_info(app);
                     break;
 
                 // Toggle visibility of cross at the middle.
                 case SDLK_C:
-                    app->showPointer = !app->showPointer;
+                    app->show_pointer = !app->show_pointer;
                     break;
 
                 // Change to state of last updating.
                 case SDLK_X:
-                    app->config = app->configCopy;
+                    app->config = app->config_backup;
+                    SDL_GetTextureSize(app->texture_fractal,
+                            &app->rect_fractal.w, &app->rect_fractal.h);
+                    app->rect_fractal.x = (app->width-app->rect_fractal.w)/2;
+                    app->rect_fractal.y = (app->height-app->rect_fractal.h)/2;
                     update_texture_info(app);
                     break;
 
@@ -739,8 +311,8 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
                 case SDLK_N:
                     SDL_StartTextInput(app->window);
                     app->mode = MODE_COMMAND;
-                    app->commandLenght = 1;
-                    strcpy(app->commandBuffer, ":");
+                    app->command_length = 1;
+                    strcpy(app->command_buffer, ":");
                     update_texture_command(app);
                     update_texture_info(app);
                     break;
@@ -770,7 +342,7 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
                 case SDLK_RETURN:
                     {
                         char *argv[MAX_ARGS];
-                        int argc = parse_command(app->commandBuffer+1, argv, MAX_ARGS);
+                        int argc = parse_command(app->command_buffer+1, argv, MAX_ARGS);
                         execute_command(app, argc, argv);
                     }
                     SDL_StopTextInput(app->window);
@@ -780,8 +352,8 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
 
                 // Deletes one character
                 case SDLK_BACKSPACE:
-                    if (app->commandLenght > 1) {
-                        app->commandBuffer[--app->commandLenght] = '\0';
+                    if (app->command_length > 1) {
+                        app->command_buffer[--app->command_length] = '\0';
                         update_texture_command(app);
                     } else {
                         SDL_StopTextInput(app->window);
@@ -792,14 +364,14 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
             }
         }
     } else if (event->type == SDL_EVENT_TEXT_INPUT) {
-        // This event will store text into app->commandBuffer if there is
+        // This event will store text into app->command_buffer if there is
         // enough space
         long unsigned int nl = strlen(event->text.text);
-        if (nl + app->commandLenght > sizeof(app->commandBuffer)-1) {
+        if (nl + app->command_length > sizeof(app->command_buffer)-1) {
             ; // Dont write anything. Buffer full
         } else {
-            strcat(app->commandBuffer, event->text.text);
-            app->commandLenght += nl;
+            strcat(app->command_buffer, event->text.text);
+            app->command_length += nl;
             update_texture_command(app);
         }
     } else if (event->type == SDL_EVENT_WINDOW_RESIZED) {
@@ -838,253 +410,24 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event) {
     return SDL_APP_CONTINUE;
 }
 
-void update_texture_command(AppState *app) {
-    // Free previous texture
-    SDL_DestroyTexture(app->commandTexture);
-    // Render command text
-    app->commandTexture = renderText(app->renderer,
-            app->font, app->commandBuffer, white,
-            &app->commandRect.w, &app->commandRect.h);
-    // Calculates new coordinates of command Rect text
-    app->commandRect.x = (app->width < app->commandRect.w) ? app->width - app->commandRect.w : 0;
-    app->commandRect.y = app->height - app->commandRect.h;
-}
-void update_texture_info(AppState *app) {
-    if (app->showInfo) {
-        // Destroy previously allocated texture if it exists
-        SDL_DestroyTexture(app->infoTexture);
-        // Format text into buffer
-        char buffer[300];
-        snprintf(buffer, sizeof(buffer),
-                "Center: %.4f%+.4fi\n"
-                "Range: %.4f%+.4fi\n"
-                "Power: %d\n"
-                "Max Iter: %d\n"
-                "Status: %s\n"
-                "Mode: %s",
-                creal(app->config.center), cimag(app->config.center),
-                creal(app->config.range), cimag(app->config.range),
-                app->config.power,
-                app->config.maxIterations,
-                app->updateFractal? "Drawing..." : "Idle",
-                modeStr[app->mode]);
-        // Created texture
-        app->infoTexture = renderText(app->renderer, 
-                app->font, buffer, white,
-                &app->infoRect.w, &app->infoRect.h);
-        if (!app->infoTexture) {
-            SDL_Log("Couldn't render text: %s", SDL_GetError());
-        }
-        app->infoRect.x = app->infoRect.y = 0.0f;
-    }
-}
-
 SDL_AppResult SDL_AppIterate(void *appstate) {
     AppState *app = appstate;
     render_all(app);
     return SDL_APP_CONTINUE;
 }
 
-void render_all(AppState *app) {
-    // clear screen
-    SDL_SetRenderDrawColor(app->renderer, 40, 40, 40, 255);
-    SDL_RenderClear(app->renderer);
-    // Render drawn fractal on window
-    SDL_RenderTexture(app->renderer, app->fractalTexture,
-            NULL, &app->fractalRect);
-    // Render info text
-    if (app->font && app->showInfo) {
-        SDL_SetRenderDrawColor(app->renderer, 0, 0, 0, 255);
-        SDL_RenderFillRect(app->renderer, &app->infoRect);
-        SDL_RenderTexture(app->renderer,
-                app->infoTexture, NULL, &app->infoRect);
-    }
-
-    // Render Pointer at the center of screen
-    if(app->showPointer) {
-        float crossSize = SDL_min(app->width, app->height)/20;
-        float halfWidth = app->width/2;
-        float halfHeight = app->height/2;
-        float lineWidth = 4;
-        SDL_SetRenderDrawColor(app->renderer,
-                0, 0, 0, SDL_ALPHA_OPAQUE);
-        for(int i = -lineWidth/2; i < 0; i++) {
-            SDL_RenderLine(app->renderer,
-                    halfWidth+i, halfHeight - crossSize,
-                    halfWidth+i, halfHeight + crossSize);
-            SDL_RenderLine(app->renderer,
-                    halfWidth - crossSize, halfHeight+i,
-                    halfWidth + crossSize, halfHeight+i);
-        }
-        SDL_SetRenderDrawColor(app->renderer,
-                255, 255, 255, SDL_ALPHA_OPAQUE);
-        for(int i = 0; i < lineWidth/2; i++) {
-            SDL_RenderLine(app->renderer,
-                    halfWidth+i, halfHeight - crossSize,
-                    halfWidth+i, halfHeight + crossSize);
-            SDL_RenderLine(app->renderer,
-                    halfWidth - crossSize, halfHeight+i,
-                    halfWidth + crossSize, halfHeight+i);
-        }
-    }
-
-    // Render help window
-    if (app->showHelp) {
-        float pad = 10;
-        // Creates an auxiliary rect to fill with padding
-        SDL_FRect r = {
-            .x = app->helpRect.x - pad,
-            .y = app->helpRect.y - pad,
-            .w = app->helpRect.w + 2*pad,
-            .h = app->helpRect.h + 2*pad
-        };
-        SDL_SetRenderDrawColor(app->renderer,
-                0, 0, 0, 255);
-        SDL_RenderFillRect(app->renderer, &r);
-        SDL_SetRenderDrawColor(app->renderer,
-                0xff, 0xff, 0xff, 255);
-        SDL_RenderTexture(app->renderer, app->helpTexture,
-                NULL, &app->helpRect);
-    }
-
-    // Render command bar at the bottom of the window
-    if (app->mode == MODE_COMMAND) {
-        SDL_FRect rr = {
-            .x = 0, .y = app->height - app->commandRect.h,
-            .w = app->width, .h=app->commandRect.h
-        };
-        SDL_SetRenderDrawColor(app->renderer,
-                0, 0, 0, 255);
-        SDL_RenderFillRect(app->renderer, &rr);
-        SDL_RenderTexture(app->renderer,
-                app->commandTexture, NULL, &app->commandRect);
-    }
-
-    SDL_RenderPresent(app->renderer);
-}
-
-// Little function that reset fractal rect position
-
-void read_status(AppState *app, char *fn) {
-
-    // 2. Open file to read
-    FILE *loadFile = fopen(fn, "r");
-    if (loadFile == NULL) {
-        fprintf(stderr, "Could not open \"%s\" for reading: %s\n", fn, strerror(errno));
-        return;
-    }
-
-    // 3. Create a temporary array (buffer) to hold each line
-    char lineBuffer[512]; 
-
-    // 4. Read the file line by line until we reach the end (NULL)
-    while (fgets(lineBuffer, sizeof(lineBuffer), loadFile) != NULL) {
-        
-        // Strip the trailing newline character (\n or \r\n) that fgets includes
-        lineBuffer[strcspn(lineBuffer, "\r\n")] = '\0';
-        
-        // Skip completely empty lines to avoid parsing errors
-        if (lineBuffer[0] == '\0') {
-            continue; 
-        }
-
-        // 5. Copy the cleaned line into your app's command buffer
-        // (Using strncpy is safer than strcpy to prevent buffer overflows)
-        strncpy(app->commandBuffer, lineBuffer, sizeof(app->commandBuffer) - 1);
-        
-        // Ensure it is properly null-terminated just in case
-        app->commandBuffer[sizeof(app->commandBuffer) - 1] = '\0';
-
-        // 6. Execute the command exactly as if the user typed it!
-        char *argv[MAX_ARGS];
-        int argc = parse_command(app->commandBuffer, argv, MAX_ARGS);
-        execute_command(app, argc, argv);
-    }
-
-    // 7. Clean up memory and close the file
-    fclose(loadFile);
-
-    printf("Successfully loaded fractal state from %s\n", fn);
-}
-void save_status(AppState *app, char *fn) {
-    time_t rawTime;
-    struct tm *info;
-    char buffer[80];
-    time(&rawTime);
-    info = localtime(&rawTime);
-    strftime(buffer, sizeof(buffer), fn, info);
-    char *outFilename = (char *) malloc(
-            sizeof(char) * (strlen(app->outDirectory) + strlen(buffer) + 1));
-    if (!outFilename) {
-        SDL_Log("Error allocating memory for outFilename: %s", strerror(errno));
-        goto end;
-    }
-    strcpy(outFilename, app->outDirectory);
-    strcat(outFilename, buffer);
-
-    // Open file to write
-    FILE *saveFile = fopen(outFilename, "w");
-    if (saveFile == NULL) {
-        SDL_Log("Could not write \"%s\": %s\n", outFilename, strerror(errno));
-        goto end;
-    }
-    // Save file
-    fprintf(saveFile, "center %.4f %.4f\n",
-            creal(app->config.center), cimag(app->config.center));
-    fprintf(saveFile, "range %.4f\n", creal(app->config.range));
-    fprintf(saveFile, "power %i\n", app->config.power);
-    fprintf(saveFile, "maxiter %i\n", app->config.maxIterations);
-
-    fclose(saveFile);
-end:
-    free(outFilename);
-}
-
-void save_image(AppState *app, char *fn) {
-    // Generating Filename based on date and time
-    time_t rawTime;
-    struct tm *info;
-    char buffer[80];
-    time(&rawTime);
-    info = localtime(&rawTime);
-    strftime(buffer, sizeof(buffer), fn, info);
-    SDL_Surface *surface = NULL;
-    char *outFilename = join_strings(app->outDirectory, buffer);
-    if (!outFilename) {
-        SDL_Log("Error allocating memory for outFilename: %s", strerror(errno));
-        goto end;
-    }
-
-    // Reading image from app->renderer
-    surface = SDL_RenderReadPixels(app->renderer, NULL);
-    if (!surface) {
-        SDL_Log("Error to read pixels: %s", SDL_GetError());
-        goto end;
-    }
-
-    if (!IMG_SavePNG(surface, outFilename)) {
-        SDL_Log("error saving \"%s\": %s", outFilename, SDL_GetError());
-    } else {
-        SDL_Log("saved \"%s\" image successfully.", outFilename);
-    }
-
-end:
-    free(outFilename);
-    SDL_DestroySurface(surface);
-}
-
 void SDL_AppQuit(void *appstate, SDL_AppResult result) {
     if (appstate) {
         AppState *app = (AppState *)appstate;
-        if (app->colors.noSetColors) free(app->colors.noSetColors);
-        if (app->outDirectory) free(app->outDirectory);
+        if (app->colors.escape_palette) free(app->colors.escape_palette);
+        if (app->output_path) free(app->output_path);
         if (app->font) TTF_CloseFont(app->font);
         SDL_DestroyRenderer(app->renderer);
         SDL_DestroyWindow(app->window);
-        SDL_DestroyTexture(app->fractalTexture);
-        SDL_DestroyTexture(app->helpTexture);
-        SDL_DestroyTexture(app->infoTexture);
-        SDL_DestroyTexture(app->commandTexture);
+        SDL_DestroyTexture(app->texture_fractal);
+        SDL_DestroyTexture(app->texture_help);
+        SDL_DestroyTexture(app->texture_info);
+        SDL_DestroyTexture(app->texture_command);
 
         free(app);
     }
