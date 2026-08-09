@@ -2,7 +2,7 @@
 CC = gcc
 # -ffast-math for avoiding checking Nan and infinities when calculation
 #  of complex numbers (IEEE-754 specificaions_
-CFLAGS = -Wall -Wextra -O3 -ffast-math -Iinclude $(shell pkg-config --cflags sdl3 sdl3-ttf sdl3-image)
+CFLAGS = -Wall -Wextra -O3 -ffast-math -march=native -Iinclude $(shell pkg-config --cflags sdl3 sdl3-ttf sdl3-image)
 LDFLAGS = $(shell pkg-config --libs sdl3 sdl3-ttf sdl3-image) -lm
 
 SRC_DIR = src

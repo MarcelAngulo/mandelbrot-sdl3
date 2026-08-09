@@ -11,6 +11,8 @@ typedef struct {
     COMPLEX_TYPE range; // width and height span in the complex plane
     int power;
     int maxIterations;
+    double zoom_ratio;
+    double displacement;
 } MandelbrotConfig;
 
 // Takes a specific complex number c

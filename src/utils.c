@@ -113,6 +113,15 @@ char *join_strings(const char *str1, const char *str2) {
     return newstr;
 }
 
+char *copy_string(const char *str) {
+    int l = strlen(str);
+    char *newstr = (char *)malloc(l + 1);
+    if (!newstr)
+        return NULL;
+    strcpy(newstr, str);
+    return newstr;
+}
+
 void calculate_colors(int size, Uint32 *base, int range, Uint32 *dest) {
     int delta = (int) range / (size-1);
     for (int x = 0; x < range; x++) {
@@ -130,3 +139,4 @@ void calculate_colors(int size, Uint32 *base, int range, Uint32 *dest) {
         dest[x] = (r << 24) | (g << 16) | (b << 8) | 0xFF;
     }
 }
+

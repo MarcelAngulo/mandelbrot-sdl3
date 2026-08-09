@@ -17,6 +17,7 @@ bool parse_long(const char *str, long int *value, long int base);
 bool parse_color(const char *str, Uint32 *value, int base);
 int parse_command(char *buffer, char *argv[], int max_args);
 char *join_strings(const char *str1, const char *str2);
+char *copy_string(const char *str);
 void calculate_colors(int size, Uint32 *base, int range, Uint32 *dest);
 
 

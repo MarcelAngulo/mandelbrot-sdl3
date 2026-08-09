@@ -51,6 +51,7 @@ typedef struct {
     bool show_help;
     char *base_path;
     char *output_path;
+    char *read_path;
     char command_buffer[COMMAND_BUFFER_SIZE];
     unsigned long int command_length;
 } AppState;

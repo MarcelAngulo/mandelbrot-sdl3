@@ -19,27 +19,27 @@ void save_image(AppState *app, char *fn) {
     SDL_Surface *surface = NULL;
     char *output_filepath = join_strings(app->output_path, buffer);
     if (!output_filepath) {
-        LOG_ERROR("Failed to allocate memory for output_filepath: %s", strerror(errno));
+        LOG_WARN("Failed to allocate memory for output_filepath: %s", strerror(errno));
         goto end;
     }
 
     // Reading image from app->renderer
     surface = SDL_RenderReadPixels(app->renderer, NULL);
     if (!surface) {
-        LOG_ERROR("Failed to read pixels: %s", SDL_GetError());
+        LOG_WARN("Failed to read pixels: %s", SDL_GetError());
         goto end;
     }
 
     if (!IMG_SavePNG(surface, output_filepath)) {
-        LOG_ERROR("Failed to save \"%s\": %s", output_filepath, SDL_GetError());
+        LOG_WARN("%s", SDL_GetError());
     } else {
         LOG_INFO("Image saved successfully into \"%s\"", output_filepath);
     }
-
 end:
     free(output_filepath);
     SDL_DestroySurface(surface);
 }
+
 void read_status(AppState *app, char *fn) {
 
     // 2. Open file to read
