@@ -17,6 +17,6 @@ typedef struct {
 
 // Takes a specific complex number c
 // and return how many iterations it took to escape.
-int calculateEscape(COMPLEX_TYPE c, const MandelbrotConfig *config);
+int calculate_escape(COMPLEX_TYPE c, const MandelbrotConfig *config);
 
 #endif

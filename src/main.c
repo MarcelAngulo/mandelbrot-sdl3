@@ -14,15 +14,12 @@
 /* TODO LIST:
  *
  * POSSIBLE TODO LIST:
- * 5) annadir command argument para guardar output
- *       directory(chequear / al final) y read file
- * 7) Revisar read_status (nunca la probe) para leer otros archivos
- * 8) annadir help for commands
- * 9) annadir help for arguments command lines
  * 6) escribir README usage and command line
+ * 7) Revisar read_status (nunca la probe) para leer otros archivos
+ * 8) annadir help for commands and help for arguments command lines
  */
 
-char help_str[] =
+char help_keys_str[] =
 "--------------| HELP |---------------\n"
 "z  F1      . help\n"
 "x          . return to last update\n"
@@ -100,10 +97,14 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
     LOG_INFO("Default variables initializated.");
 
     // Parse arguments from command line
-    if(parse_arguments(app, argc, argv)) {
-        return SDL_APP_FAILURE;
-    } else {
-        LOG_INFO("Arguments parsed.");
+    switch (execute_command(app, argc-1, argv+1)) {
+        case SDL_APP_FAILURE:
+            return SDL_APP_FAILURE;
+        case SDL_APP_SUCCESS:
+            return SDL_APP_SUCCESS;
+        case SDL_APP_CONTINUE:
+            LOG_INFO("Arguments parsed.");
+            break;
     }
 
     // Init SDL Library
@@ -123,7 +124,8 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
 
     // Create window
     if (!SDL_CreateWindowAndRenderer("Mandelbrot Explorer",
-                app->width, app->height, SDL_WINDOW_RESIZABLE,
+                app->width, app->height,
+                SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE,
                 &app->window, &app->renderer)) {
         LOG_ERROR("Failed to create window and renderer: %s", SDL_GetError());
         return SDL_APP_FAILURE;
@@ -166,7 +168,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
 
     // Render help texture
     app->texture_help = renderText(app->renderer,
-            app->font, help_str, app->color_font,
+            app->font, help_keys_str, app->color_font,
             &app->rect_help.w, &app->rect_help.h);
     if(!app->texture_help) {
         LOG_ERROR("Failed to create texture_help: %s", SDL_GetError());
@@ -189,6 +191,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
     LOG_INFO("Fractal texture updated successfully.");
 
     LOG_INFO("Initialization completed!");
+    SDL_ShowWindow(app->window);
     return SDL_APP_CONTINUE;
 }
 

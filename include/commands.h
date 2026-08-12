@@ -4,7 +4,6 @@
 
 #include "app.h"
 
-bool parse_arguments(AppState *app, int argc, char *argv[]);
-bool execute_command(AppState *app, int argc, char *argv[]);
+SDL_AppResult execute_command(AppState *app, int argc, char *argv[]);
 
 #endif

@@ -1,6 +1,6 @@
 #include "mandelbrot.h"
 
-int calculateEscape(COMPLEX_TYPE c, const MandelbrotConfig *config) {
+int calculate_escape(COMPLEX_TYPE c, const MandelbrotConfig *config) {
     COMPLEX_TYPE z = 0;
     // Run the z = z^2+c loop up to config-> max_iterations
     int pow = config->power;

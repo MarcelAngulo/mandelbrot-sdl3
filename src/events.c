@@ -10,7 +10,11 @@ SDL_AppResult handle_explore_keys(AppState *app, SDL_Event *event) {
     switch (event->key.key) {
         // Close app
         case SDLK_Q:
-            return SDL_APP_SUCCESS;
+            {
+                SDL_Event quit_event;
+                quit_event.type = SDL_EVENT_QUIT;
+                SDL_PushEvent(&quit_event);
+            }
             break;
 
         case SDLK_Z:

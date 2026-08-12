@@ -42,17 +42,17 @@ end:
 
 void read_status(AppState *app, char *fn) {
 
-    // 2. Open file to read
+    // Open file to read
     FILE *loadFile = fopen(fn, "r");
     if (loadFile == NULL) {
         LOG_WARN("Failed to open \"%s\" for reading: %s\n", fn, strerror(errno));
         return;
     }
 
-    // 3. Create a temporary array (buffer) to hold each line
+    // Create a temporary array (buffer) to hold each line
     char lineBuffer[512]; 
 
-    // 4. Read the file line by line until we reach the end (NULL)
+    // Read the file line by line until we reach the end (NULL)
     while (fgets(lineBuffer, sizeof(lineBuffer), loadFile) != NULL) {
         
         // Strip the trailing newline character (\n or \r\n) that fgets includes
@@ -63,23 +63,23 @@ void read_status(AppState *app, char *fn) {
             continue; 
         }
 
-        // 5. Copy the cleaned line into your app's command buffer
+        // Copy the cleaned line into your app's command buffer
         // (Using strncpy is safer than strcpy to prevent buffer overflows)
         strncpy(app->command_buffer, lineBuffer, sizeof(app->command_buffer) - 1);
         
         // Ensure it is properly null-terminated just in case
         app->command_buffer[sizeof(app->command_buffer) - 1] = '\0';
 
-        // 6. Execute the command exactly as if the user typed it!
+        // Execute the command exactly as if the user typed it!
         char *argv[MAX_ARGS];
         int argc = parse_command(app->command_buffer, argv, MAX_ARGS);
         execute_command(app, argc, argv);
     }
 
-    // 7. Clean up memory and close the file
+    // Clean up memory and close the file
     fclose(loadFile);
 
-    printf("Successfully loaded fractal state from %s\n", fn);
+    LOG_INFO("Successfully loaded fractal state from %s", fn);
 }
 void save_status(AppState *app, char *fn) {
     time_t rawTime;

@@ -140,3 +140,13 @@ void calculate_colors(int size, Uint32 *base, int range, Uint32 *dest) {
     }
 }
 
+// Helper to strip leading '-' or '--' from command names
+const char *strip_dashes(const char *arg) {
+    if (arg[0] == '-') {
+        arg++;
+        if (arg[0] == '-') {
+            arg++;
+        }
+    }
+    return arg;
+}

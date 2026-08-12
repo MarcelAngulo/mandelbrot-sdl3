@@ -19,6 +19,7 @@ int parse_command(char *buffer, char *argv[], int max_args);
 char *join_strings(const char *str1, const char *str2);
 char *copy_string(const char *str);
 void calculate_colors(int size, Uint32 *base, int range, Uint32 *dest);
+const char *strip_dashes(const char *arg);
 
 
 #endif

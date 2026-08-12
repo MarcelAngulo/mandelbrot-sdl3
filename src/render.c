@@ -4,6 +4,7 @@
 #include "render.h"
 #include "mandelbrot.h"
 #include "logger.h"
+#include <omp.h>
 
 char modeStr[][10] = {
     "Explorer",
@@ -50,17 +51,13 @@ void view_resize(AppState *app, double xratio, double yratio) {
 }
 
 void update_texture_fractal(AppState *app) {
-    void *pixels;
-    int pitch;
     float width,height;
     // Get size in pixels of texture
     SDL_GetTextureSize(app->texture_fractal, &width, &height);
+
     // Creates a new texture to render if old texture dimensions
     // are not equal to those of window
     if (width != app->width || height != app->height) {
-        width = app->width;
-        height = app->height;
-
         SDL_DestroyTexture(app->texture_fractal);
         app->texture_fractal = SDL_CreateTexture(
                 app->renderer, SDL_PIXELFORMAT_RGBA8888,
@@ -71,6 +68,8 @@ void update_texture_fractal(AppState *app) {
 
     // Lock the texture to gain direct access to
     // its raw pixel buffer memory
+    void *pixels;
+    int pitch;
     if (!SDL_LockTexture(app->texture_fractal, NULL, &pixels, &pitch) != 0) {
         LOG_WARN("Failed to lock texture: %s", SDL_GetError());
         return;
@@ -82,17 +81,18 @@ void update_texture_fractal(AppState *app) {
     COMPLEX_TYPE top_left = app->config.center - app->config.range/2;
 
 
-    // 2. Loop through and write directly to the raw memory array
-    for(int y = 0; y < height; y++) {
-        for(int x = 0; x < width; x++) {
+    // Loop through and write directly to the raw memory array
+#pragma omp parallel for
+    for(int y = 0; y < app->height; y++) {
+        for(int x = 0; x < app->width; x++) {
             double complex c = top_left +
-                x*creal(app->config.range)/width +
-                y*cimag(app->config.range)/height*I;
+                x*creal(app->config.range)/app->width +
+                y*cimag(app->config.range)/app->height*I;
 
             // Calculate how many iterations are needed to c to escape
             // If r==config->max_iterations, then c possibly belongs to
             // Mandelbrot Set, if not, doesn't belong
-            int r = calculateEscape(c, &app->config);
+            int r = calculate_escape(c, &app->config);
 
             int pixel_index = y * (pitch / 4) + x;
             if (r == app->config.maxIterations){
@@ -103,7 +103,7 @@ void update_texture_fractal(AppState *app) {
         }
     }
 
-    // 3. Unlock the texture to upload the finished image to the GPU
+    // Unlock the texture to upload the finished image to the GPU
     SDL_UnlockTexture(app->texture_fractal);
     app->rect_fractal = (SDL_FRect) {
         .x = 0, .y = 0,
