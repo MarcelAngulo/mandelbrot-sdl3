@@ -14,29 +14,19 @@
 /* TODO LIST:
  *
  * POSSIBLE TODO LIST:
- * 6) escribir README usage and command line
- * 7) Revisar read_status (nunca la probe) para leer otros archivos
- * 8) annadir help for commands and help for arguments command lines
+ * 6) escribir README
+ * 3) annadir help for commands and help for arguments command lines
+ * 4) Add little window to print messages (like output directory, messages, errors)
+ * 5) Mejorar interfaz de los comandos como me dijo Gemini
+ * 6) Historial de comandos
  */
 
-char help_keys_str[] =
-"--------------| HELP |---------------\n"
-"z  F1      . help\n"
-"x          . return to last update\n"
-"a          . zoom out\n"
-"s          . zoom in\n"
-"q  ESCAPE  . quit app\n"
-"o  -       . decrease max iterations\n"
-"p  +       . increase max iterations\n"
-"g          . save screenshot\n"
-"h  LEFT    . move left\n"
-"l  RIGHT   . move right\n"
-"j  DOWN    . move down\n"
-"k  UP      . move up\n"
-"i          . toogle info view\n"
-"c          . toogle pointer view\n"
-"f          . fullscreen\n"
-"------------------------------------";
+char help_keys_str[] = {
+    #embed "help_keys_msg.txt"
+    ,0 };
+char help_commands_str[] = {
+    #embed "help_commands_msg.txt"
+    ,0 };
 
 
 SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
@@ -69,6 +59,7 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
     app->show_info = true;
     app->show_pointer = true;
     app->show_help = false;
+    app->show_help_command = false;
 
     // Generates Default colors
     // Solid black for mandelbrot set
@@ -180,6 +171,19 @@ SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]) {
     app->rect_help.x = (app->width - app->rect_help.w)/2;
     app->rect_help.y = (app->height - app->rect_help.h)/2;
 
+    // Render help command texture
+    app->texture_help_command = renderText(app->renderer,
+            app->font, help_commands_str, app->color_font,
+            &app->rect_help_command.w, &app->rect_help_command.h);
+    if(!app->texture_help_command) {
+        LOG_ERROR("Failed to create texture_help_command: %s", SDL_GetError());
+        return SDL_APP_FAILURE;
+    } else {
+        LOG_INFO("app->texture_help_command created.");
+    }
+
+    app->rect_help_command.x = (app->width - app->rect_help_command.w)/2;
+    app->rect_help_command.y = (app->height - app->rect_help_command.h)/2;
 
     SDL_SetHint(SDL_HINT_MAIN_CALLBACK_RATE, "waitevent");
 
@@ -245,6 +249,7 @@ void SDL_AppQuit(void *appstate, SDL_AppResult result) {
         SDL_DestroyTexture(app->texture_help);
         SDL_DestroyTexture(app->texture_info);
         SDL_DestroyTexture(app->texture_command);
+        SDL_DestroyTexture(app->texture_help_command);
 
         free(app);
     }

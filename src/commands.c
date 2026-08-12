@@ -187,6 +187,9 @@ SDL_AppResult execute_command(AppState *app, int argc, char *argv[]) {
             SDL_PushEvent(&quit_event);
             return SDL_APP_SUCCESS;
         }
+        else if (streq(cmd, "help") || streq(cmd, "h")) {
+            SDL_Log("%s\n", help_commands_str);
+        }
         else if (cmd[0] == '#') {
             return SDL_APP_CONTINUE;
         }

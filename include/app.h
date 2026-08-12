@@ -33,10 +33,12 @@ typedef struct {
     SDL_Texture *texture_help;
     SDL_Texture *texture_info;
     SDL_Texture *texture_command;
+    SDL_Texture *texture_help_command;
     SDL_FRect rect_fractal;
     SDL_FRect rect_help;
     SDL_FRect rect_info;
     SDL_FRect rect_command;
+    SDL_FRect rect_help_command;
     SDL_Color color_font;
     TTF_Font *font;
     int width;
@@ -49,6 +51,7 @@ typedef struct {
     bool show_info;
     bool show_pointer;
     bool show_help;
+    bool show_help_command;
     char *base_path;
     char *output_path;
     char *read_path;
@@ -56,4 +59,5 @@ typedef struct {
     unsigned long int command_length;
 } AppState;
 
+extern char help_commands_str[];
 #endif

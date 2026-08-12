@@ -199,9 +199,9 @@ void render_all(AppState *app) {
         }
     }
 
+    float pad = 10;
     // Render help window
     if (app->show_help) {
-        float pad = 10;
         // Creates an auxiliary rect to fill with padding
         SDL_FRect r = {
             .x = app->rect_help.x - pad,
@@ -216,6 +216,23 @@ void render_all(AppState *app) {
                 0xff, 0xff, 0xff, 255);
         SDL_RenderTexture(app->renderer, app->texture_help,
                 NULL, &app->rect_help);
+    }
+    // Render help window
+    if (app->show_help_command) {
+        // Creates an auxiliary rect to fill with padding
+        SDL_FRect r = {
+            .x = app->rect_help_command.x - pad,
+            .y = app->rect_help_command.y - pad,
+            .w = app->rect_help_command.w + 2*pad,
+            .h = app->rect_help_command.h + 2*pad
+        };
+        SDL_SetRenderDrawColor(app->renderer,
+                0, 0, 0, 255);
+        SDL_RenderFillRect(app->renderer, &r);
+        SDL_SetRenderDrawColor(app->renderer,
+                0xff, 0xff, 0xff, 255);
+        SDL_RenderTexture(app->renderer, app->texture_help_command,
+                NULL, &app->rect_help_command);
     }
 
     // Render command bar at the bottom of the window

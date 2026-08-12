@@ -22,6 +22,10 @@ SDL_AppResult handle_explore_keys(AppState *app, SDL_Event *event) {
             app->show_help = !app->show_help;
             break;
 
+        case SDLK_V:
+            app->show_help_command = !app->show_help_command;
+            break;
+
         // Update view
         case SDLK_SPACE:
         case SDLK_RETURN:
@@ -206,6 +210,10 @@ SDL_AppResult handle_window_resize(AppState *app, SDL_Event *event){
     app->height = event->window.data2;
     // Updates info texture
     update_texture_info(app);
+    app->rect_help_command.x = (app->width - app->rect_help_command.w)/2;
+    app->rect_help_command.y = (app->height - app->rect_help_command.h)/2;
+    app->rect_help.x = (app->width - app->rect_help.w)/2;
+    app->rect_help.y = (app->height - app->rect_help.h)/2;
     return SDL_APP_CONTINUE;
 }
 SDL_AppResult handle_mouse_motion(AppState *app, SDL_Event *event) {
